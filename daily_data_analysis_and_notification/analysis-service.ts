@@ -90,11 +90,12 @@ export function generateAutomaticReport(repository: SalesRepository, requestedDa
   return buildReport(repository, "automatic", reportingDate, reportingDate, reportingDate, days, addDays(reportingDate, -days), addDays(reportingDate, -1));
 }
 
-export type HistoricalRange = "week" | "three-months" | "year" | "all";
+export type HistoricalRange = "week" | "three-months" | "year" | "all" | "custom";
 
 export function generateHistoricalReport(repository: SalesRepository, range: HistoricalRange, customStart?: string, customEnd?: string) {
+  if (range === "custom" && (!customStart || !customEnd)) throw new Error("Custom historical reports require both a start date and an end date.");
   const end = customEnd || dhakaDate();
-  const start = range === "week" ? addDays(end, -6) : range === "three-months" ? addMonths(end, -3) : range === "year" ? addMonths(end, -12) : customStart || repository.getFirstSaleDate() || end;
+  const start = range === "custom" ? customStart as string : range === "week" ? addDays(end, -6) : range === "three-months" ? addMonths(end, -3) : range === "year" ? addMonths(end, -12) : customStart || repository.getFirstSaleDate() || end;
   return buildReport(repository, "historical", end, start, end, null, null, null);
 }
 

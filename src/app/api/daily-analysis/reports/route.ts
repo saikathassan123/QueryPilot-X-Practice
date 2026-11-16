@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     const repository = getSalesRepository();
     if (body.kind === "historical") {
       const range = String(body.range);
-      if (!["week", "three-months", "year", "all"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
+      if (!["week", "three-months", "year", "all", "custom"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
       return NextResponse.json({
         report: generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined)
       }, { status: 201 });

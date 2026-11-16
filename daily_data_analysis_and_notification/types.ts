@@ -125,5 +125,6 @@ export interface SalesRepository {
   getAnalysisPreference(key: string): string | null;
   setAnalysisPreference(key: string, value: string): void;
   saveAnalysisReport(report: AnalysisReport): AnalysisReport;
+  getAnalysisReport(id: number): AnalysisReport | null;
   listAnalysisReports(limit?: number): AnalysisReport[];
 }

@@ -255,9 +255,12 @@ export class LocalSqliteSalesRepository implements SalesRepository {
     `).all(periodStart, periodEnd) as Array<Record<string, unknown>>;
     const byDate = new Map(rows.map(row => [String(row.date), mapKpis(row)]));
     const result: DailyPerformance[] = [];
-    for (let cursor = periodStart; cursor <= periodEnd; cursor = new Date(`${cursor}T00:00:00Z`).toISOString().slice(0, 10)) {
+    for (let cursor = periodStart; cursor <= periodEnd;) {
       result.push({ date: cursor, ...(byDate.get(cursor) || mapKpis({})) });
       if (cursor === periodEnd) break;
+      const nextDate = new Date(`${cursor}T00:00:00.000Z`);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+      cursor = nextDate.toISOString().slice(0, 10);
     }
     return result;
   }
@@ -299,6 +302,11 @@ export class LocalSqliteSalesRepository implements SalesRepository {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(report.reportKind, report.reportingDate, report.periodStart, report.periodEnd, report.comparisonDays, report.comparisonStart, report.comparisonEnd, JSON.stringify(report));
     return { ...report, id: Number(result.lastInsertRowid) };
+  }
+
+  getAnalysisReport(id: number): AnalysisReport | null {
+    const row = this.database.prepare("SELECT id, report_json AS reportJson FROM daily_analysis_reports WHERE id = ?").get(id) as { id: number; reportJson: string } | undefined;
+    return row ? { ...(JSON.parse(row.reportJson) as AnalysisReport), id: row.id } : null;
   }
 
   listAnalysisReports(limit = 50): AnalysisReport[] {
