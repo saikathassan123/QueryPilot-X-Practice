@@ -1,4 +1,4 @@
-export const SALE_STATUSES = ["Pending", "Confirmed", "Completed", "Cancelled", "Returned"] as const;
+export const SALE_STATUSES = ["Pending", "Processing", "Confirmed", "Completed", "Cancelled", "Returned"] as const;
 export const CUSTOMER_GENDERS = ["Male", "Female", "Other", "Not Specified"] as const;
 
 export type SaleStatus = (typeof SALE_STATUSES)[number];
@@ -60,9 +60,70 @@ export type DailyNotification = {
   createdAt: string;
 };
 
+export type AnalysisKpis = {
+  totalRevenue: number;
+  totalOrders: number;
+  totalUnitsSold: number;
+  totalProductLines: number;
+  grossProfit: number;
+  grossProfitMargin: number;
+  totalDiscounts: number;
+  averageOrderValue: number;
+  averageCustomerRating: number | null;
+};
+
+export type AnalysisSnapshot = AnalysisKpis & {
+  periodStart: string;
+  periodEnd: string;
+  statusDistribution: Record<SaleStatus, number>;
+};
+
+export type AnalysisDimension = {
+  label: string;
+  revenue: number;
+  orders: number;
+  units: number;
+  productLines: number;
+  grossProfit: number;
+  discounts: number;
+  averageRating: number | null;
+};
+
+export type DailyPerformance = AnalysisKpis & { date: string };
+export type ReportKind = "automatic" | "historical";
+
+export type AnalysisReport = {
+  id?: number;
+  reportKind: ReportKind;
+  reportingDate: string;
+  periodStart: string;
+  periodEnd: string;
+  comparisonDays: number | null;
+  comparisonStart: string | null;
+  comparisonEnd: string | null;
+  current: AnalysisSnapshot;
+  comparisonDailyAverage: AnalysisKpis | null;
+  comparison: AnalysisSnapshot | null;
+  dailyPerformance: DailyPerformance[];
+  productPerformance: AnalysisDimension[];
+  categoryPerformance: AnalysisDimension[];
+  regionPerformance: AnalysisDimension[];
+  genderPerformance: AnalysisDimension[];
+  generatedAt: string;
+  status: "generated";
+};
+
 export interface SalesRepository {
   insertSale(input: SaleInput): SaleRecord;
   listSales(limit?: number): SaleRecord[];
   analyzePeriod(periodStart: string, periodEnd: string, analysisDate?: string): DailyAnalysisResult;
   listNotifications(limit?: number): DailyNotification[];
+  getAnalysisSnapshot(periodStart: string, periodEnd: string): AnalysisSnapshot;
+  getDailyPerformance(periodStart: string, periodEnd: string): DailyPerformance[];
+  getDimensionPerformance(dimension: "product_name" | "category" | "region" | "customer_gender", periodStart: string, periodEnd: string): AnalysisDimension[];
+  getFirstSaleDate(): string | null;
+  getAnalysisPreference(key: string): string | null;
+  setAnalysisPreference(key: string, value: string): void;
+  saveAnalysisReport(report: AnalysisReport): AnalysisReport;
+  listAnalysisReports(limit?: number): AnalysisReport[];
 }

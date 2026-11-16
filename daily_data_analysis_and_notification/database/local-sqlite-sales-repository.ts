@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type {
+  AnalysisDimension,
+  AnalysisKpis,
+  AnalysisReport,
+  AnalysisSnapshot,
+  DailyPerformance,
   DailyAnalysisResult,
   DailyNotification,
   SaleInput,
   SaleRecord,
   SalesRepository
 } from "../types";
+import { SALE_STATUSES } from "../types";
 
 function round(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -36,6 +42,40 @@ function mapSale(row: Record<string, unknown>): SaleRecord {
     totalRevenue: Number(row.totalRevenue),
     grossProfit: Number(row.grossProfit),
     insertedAt: String(row.insertedAt)
+  };
+}
+
+function rounded(value: unknown) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function mapKpis(row: Record<string, unknown>): AnalysisKpis {
+  const revenue = rounded(row.totalRevenue);
+  const profit = rounded(row.grossProfit);
+  const orders = Number(row.totalOrders || 0);
+  return {
+    totalRevenue: revenue,
+    totalOrders: orders,
+    totalUnitsSold: Number(row.totalUnitsSold || 0),
+    totalProductLines: Number(row.totalProductLines || 0),
+    grossProfit: profit,
+    grossProfitMargin: revenue ? rounded((profit / revenue) * 100) : 0,
+    totalDiscounts: rounded(row.totalDiscounts),
+    averageOrderValue: orders ? rounded(revenue / orders) : 0,
+    averageCustomerRating: row.averageCustomerRating == null ? null : rounded(row.averageCustomerRating)
+  };
+}
+
+function mapDimension(row: Record<string, unknown>): AnalysisDimension {
+  return {
+    label: String(row.label),
+    revenue: rounded(row.revenue),
+    orders: Number(row.orders || 0),
+    units: Number(row.units || 0),
+    productLines: Number(row.productLines || 0),
+    grossProfit: rounded(row.grossProfit),
+    discounts: rounded(row.discounts),
+    averageRating: row.averageRating == null ? null : rounded(row.averageRating)
   };
 }
 
@@ -114,7 +154,7 @@ export class LocalSqliteSalesRepository implements SalesRepository {
         ROUND(COALESCE(SUM(gross_profit), 0), 2) AS totalGrossProfit
       FROM daily_sales_orders
       WHERE order_date BETWEEN ? AND ?
-        AND status NOT IN ('Cancelled', 'Returned')
+        AND status = 'Completed'
     `).get(periodStart, periodEnd) as {
       orderCount: number;
       lineCount: number;
@@ -181,5 +221,89 @@ export class LocalSqliteSalesRepository implements SalesRepository {
       ORDER BY created_at DESC
       LIMIT ?
     `).all(safeLimit) as DailyNotification[];
+  }
+
+  getAnalysisSnapshot(periodStart: string, periodEnd: string): AnalysisSnapshot {
+    const row = this.database.prepare(`
+      SELECT COALESCE(SUM(total_revenue), 0) AS totalRevenue,
+        COUNT(DISTINCT order_id) AS totalOrders, COALESCE(SUM(quantity), 0) AS totalUnitsSold,
+        COUNT(*) AS totalProductLines, COALESCE(SUM(gross_profit), 0) AS grossProfit,
+        COALESCE(SUM(discount_amount), 0) AS totalDiscounts, AVG(customer_rating) AS averageCustomerRating
+      FROM daily_sales_orders
+      WHERE order_date BETWEEN ? AND ? AND status = 'Completed'
+    `).get(periodStart, periodEnd) as Record<string, unknown>;
+    const distribution = Object.fromEntries(SALE_STATUSES.map(status => [status, 0])) as AnalysisSnapshot["statusDistribution"];
+    const statuses = this.database.prepare(`
+      SELECT status, COUNT(DISTINCT order_id) AS count FROM daily_sales_orders
+      WHERE order_date BETWEEN ? AND ? GROUP BY status
+    `).all(periodStart, periodEnd) as Array<{ status: string; count: number }>;
+    for (const status of statuses) {
+      if (status.status in distribution) distribution[status.status as keyof typeof distribution] = status.count;
+    }
+    return { ...mapKpis(row), periodStart, periodEnd, statusDistribution: distribution };
+  }
+
+  getDailyPerformance(periodStart: string, periodEnd: string): DailyPerformance[] {
+    const rows = this.database.prepare(`
+      SELECT order_date AS date, COALESCE(SUM(total_revenue), 0) AS totalRevenue,
+        COUNT(DISTINCT order_id) AS totalOrders, COALESCE(SUM(quantity), 0) AS totalUnitsSold,
+        COUNT(*) AS totalProductLines, COALESCE(SUM(gross_profit), 0) AS grossProfit,
+        COALESCE(SUM(discount_amount), 0) AS totalDiscounts, AVG(customer_rating) AS averageCustomerRating
+      FROM daily_sales_orders
+      WHERE order_date BETWEEN ? AND ? AND status = 'Completed'
+      GROUP BY order_date ORDER BY order_date
+    `).all(periodStart, periodEnd) as Array<Record<string, unknown>>;
+    const byDate = new Map(rows.map(row => [String(row.date), mapKpis(row)]));
+    const result: DailyPerformance[] = [];
+    for (let cursor = periodStart; cursor <= periodEnd; cursor = new Date(`${cursor}T00:00:00Z`).toISOString().slice(0, 10)) {
+      result.push({ date: cursor, ...(byDate.get(cursor) || mapKpis({})) });
+      if (cursor === periodEnd) break;
+    }
+    return result;
+  }
+
+  getDimensionPerformance(dimension: "product_name" | "category" | "region" | "customer_gender", periodStart: string, periodEnd: string): AnalysisDimension[] {
+    const column = dimension;
+    return this.database.prepare(`
+      SELECT ${column} AS label, COALESCE(SUM(total_revenue), 0) AS revenue,
+        COUNT(DISTINCT order_id) AS orders, COALESCE(SUM(quantity), 0) AS units,
+        COUNT(*) AS productLines, COALESCE(SUM(gross_profit), 0) AS grossProfit,
+        COALESCE(SUM(discount_amount), 0) AS discounts, AVG(customer_rating) AS averageRating
+      FROM daily_sales_orders
+      WHERE order_date BETWEEN ? AND ? AND status = 'Completed'
+      GROUP BY ${column} ORDER BY revenue DESC, label
+    `).all(periodStart, periodEnd).map(row => mapDimension(row as Record<string, unknown>));
+  }
+
+  getFirstSaleDate(): string | null {
+    const row = this.database.prepare("SELECT MIN(order_date) AS firstDate FROM daily_sales_orders").get() as { firstDate?: string };
+    return row.firstDate || null;
+  }
+
+  getAnalysisPreference(key: string): string | null {
+    const row = this.database.prepare("SELECT preference_value AS value FROM daily_analysis_preferences WHERE preference_key = ?").get(key) as { value?: string } | undefined;
+    return row?.value || null;
+  }
+
+  setAnalysisPreference(key: string, value: string) {
+    this.database.prepare(`
+      INSERT INTO daily_analysis_preferences (preference_key, preference_value) VALUES (?, ?)
+      ON CONFLICT (preference_key) DO UPDATE SET preference_value = excluded.preference_value
+    `).run(key, value);
+  }
+
+  saveAnalysisReport(report: AnalysisReport): AnalysisReport {
+    const result = this.database.prepare(`
+      INSERT INTO daily_analysis_reports
+        (report_kind, reporting_date, period_start, period_end, comparison_days, comparison_start, comparison_end, report_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(report.reportKind, report.reportingDate, report.periodStart, report.periodEnd, report.comparisonDays, report.comparisonStart, report.comparisonEnd, JSON.stringify(report));
+    return { ...report, id: Number(result.lastInsertRowid) };
+  }
+
+  listAnalysisReports(limit = 50): AnalysisReport[] {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+    const rows = this.database.prepare("SELECT id, report_json AS reportJson FROM daily_analysis_reports ORDER BY generated_at DESC, id DESC LIMIT ?").all(safeLimit) as Array<{ id: number; reportJson: string }>;
+    return rows.map(row => ({ ...(JSON.parse(row.reportJson) as AnalysisReport), id: row.id }));
   }
 }

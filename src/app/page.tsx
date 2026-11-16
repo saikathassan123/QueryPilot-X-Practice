@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, BarChart3, Bell, Check, Database, Eye, EyeOff, LockKeyhole, LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
 import DatasetsPanel, { type Table } from "@features/smart_data_analysis_and_visualization/components/DatasetsPanel";
+import DailyAnalysisDashboard from "@features/daily_data_analysis_and_notification/components/DailyAnalysisDashboard";
 
 type Project = { id: string; name: string };
 type Session = {
@@ -15,7 +16,7 @@ type Session = {
   mode: "oauth" | "postgres" | null;
 };
 
-type Screen = "home" | "setup" | "dashboard";
+type Screen = "home" | "setup" | "dashboard" | "daily-analysis";
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
@@ -206,7 +207,7 @@ export default function Home() {
         </main>
       )}
 
-      {session && screen === "dashboard" && (
+      {session && (screen === "dashboard" || screen === "daily-analysis") && (
         <div className="workspace">
           <header className="workspace-header">
             <div className="brand-inline"><div className="brand-mark"><Database size={18}/></div>Query<strong>Pilot</strong></div>
@@ -219,12 +220,12 @@ export default function Home() {
           <div className="workspace-body">
             <nav className="module-sidebar" aria-label="Project modules">
               <div className="module-label">WORKSPACE</div>
-              <div className="module-link active"><BarChart3 size={17}/><span>Smart data analysis</span></div>
-              <div className="module-link disabled"><Bell size={17}/><span>Daily analysis</span><small>Soon</small></div>
+              <button className={"module-link " + (screen === "dashboard" ? "active" : "")} onClick={() => setScreen("dashboard")}><BarChart3 size={17}/><span>Smart data analysis</span></button>
+              <button className={"module-link " + (screen === "daily-analysis" ? "active" : "")} onClick={() => setScreen("daily-analysis")}><Bell size={17}/><span>Daily analysis</span></button>
               <div className="module-link disabled"><ShieldAlert size={17}/><span>Fraud detection</span><small>Soon</small></div>
               <div className="module-bottom"><ShieldCheck size={15}/> Read-only connection</div>
             </nav>
-            <main className="main-panel"><DatasetsPanel tables={tables} loading={loadingTables} onRefresh={() => void loadTables()}/></main>
+            <main className="main-panel">{screen === "daily-analysis" ? <DailyAnalysisDashboard onBack={() => setScreen("dashboard")}/> : <DatasetsPanel tables={tables} loading={loadingTables} onRefresh={() => void loadTables()}/>}</main>
             <aside className="details-panel">
               <div className="aside-heading"><Database size={20}/><h2>Connection details</h2></div>
               <div className="detail"><span>Project</span><strong>{session.projectName || "Supabase project"}</strong></div>
