@@ -32,12 +32,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (denied) return denied;
   try {
     const stored = await saveAnalysisReportPdf(access.report);
+    getSalesRepository().updateAnalysisReportPdf(access.id, {
+      status: "generated",
+      filename: stored.filename,
+      generatedAt: new Date().toISOString(),
+      sizeBytes: stored.sizeBytes
+    });
     return NextResponse.json({
       reportId: access.id,
       filename: stored.filename,
       downloadUrl: `/api/daily-analysis/reports/${access.id}/pdf`
     }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    try {
+      getSalesRepository().updateAnalysisReportPdf(access.id, {
+        status: "failed",
+        error: error instanceof Error ? error.message : "Could not generate the PDF."
+      });
+    } catch {
+      // Preserve the original PDF error response if metadata persistence fails.
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not generate the PDF." }, { status: 500 });
   }
 }

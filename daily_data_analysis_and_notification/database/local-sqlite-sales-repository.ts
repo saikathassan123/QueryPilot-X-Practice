@@ -295,23 +295,97 @@ export class LocalSqliteSalesRepository implements SalesRepository {
     `).run(key, value);
   }
 
+  getAnalysisPreferences() {
+    const rows = this.database.prepare("SELECT preference_key AS key, preference_value AS value FROM daily_analysis_preferences").all() as Array<{ key: string; value: string }>;
+    return Object.fromEntries(rows.map(row => [row.key, row.value]));
+  }
+
   saveAnalysisReport(report: AnalysisReport): AnalysisReport {
+    if (!report.generationKey) throw new Error("A report generation key is required.");
     const result = this.database.prepare(`
       INSERT INTO daily_analysis_reports
-        (report_kind, reporting_date, period_start, period_end, comparison_days, comparison_start, comparison_end, report_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(report.reportKind, report.reportingDate, report.periodStart, report.periodEnd, report.comparisonDays, report.comparisonStart, report.comparisonEnd, JSON.stringify(report));
-    return { ...report, id: Number(result.lastInsertRowid) };
+        (report_kind, reporting_date, period_start, period_end, comparison_days, comparison_start, comparison_end, report_json, generation_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (generation_key) DO NOTHING
+    `).run(report.reportKind, report.reportingDate, report.periodStart, report.periodEnd, report.comparisonDays, report.comparisonStart, report.comparisonEnd, JSON.stringify(report), report.generationKey);
+    const row = this.database.prepare(`
+      SELECT id, report_json AS reportJson, generation_key AS generationKey,
+        generation_status AS generationStatus, pdf_status AS pdfStatus,
+        pdf_filename AS pdfFilename, pdf_generated_at AS pdfGeneratedAt,
+        pdf_size_bytes AS pdfSizeBytes, pdf_error AS pdfError
+      FROM daily_analysis_reports WHERE generation_key = ?
+    `).get(report.generationKey) as StoredReportRow | undefined;
+    if (!row) throw new Error("The generated report could not be retrieved.");
+    return result.changes ? { ...report, id: Number(result.lastInsertRowid), generationStatus: "generated", pdfStatus: "not_generated", pdfFilename: null, pdfGeneratedAt: null, pdfSizeBytes: null, pdfError: null } : this.mapStoredReport(row);
   }
 
   getAnalysisReport(id: number): AnalysisReport | null {
-    const row = this.database.prepare("SELECT id, report_json AS reportJson FROM daily_analysis_reports WHERE id = ?").get(id) as { id: number; reportJson: string } | undefined;
-    return row ? { ...(JSON.parse(row.reportJson) as AnalysisReport), id: row.id } : null;
+    const row = this.database.prepare(`
+      SELECT id, report_json AS reportJson, generation_key AS generationKey,
+        generation_status AS generationStatus, pdf_status AS pdfStatus,
+        pdf_filename AS pdfFilename, pdf_generated_at AS pdfGeneratedAt,
+        pdf_size_bytes AS pdfSizeBytes, pdf_error AS pdfError
+      FROM daily_analysis_reports WHERE id = ?
+    `).get(id) as StoredReportRow | undefined;
+    return row ? this.mapStoredReport(row) : null;
   }
 
   listAnalysisReports(limit = 50): AnalysisReport[] {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
-    const rows = this.database.prepare("SELECT id, report_json AS reportJson FROM daily_analysis_reports ORDER BY generated_at DESC, id DESC LIMIT ?").all(safeLimit) as Array<{ id: number; reportJson: string }>;
-    return rows.map(row => ({ ...(JSON.parse(row.reportJson) as AnalysisReport), id: row.id }));
+    const rows = this.database.prepare(`
+      SELECT id, report_json AS reportJson, generation_key AS generationKey,
+        generation_status AS generationStatus, pdf_status AS pdfStatus,
+        pdf_filename AS pdfFilename, pdf_generated_at AS pdfGeneratedAt,
+        pdf_size_bytes AS pdfSizeBytes, pdf_error AS pdfError
+      FROM daily_analysis_reports ORDER BY generated_at DESC, id DESC LIMIT ?
+    `).all(safeLimit) as StoredReportRow[];
+    return rows.map(row => this.mapStoredReport(row));
+  }
+
+  updateAnalysisReportPdf(id: number, metadata: {
+    status: "generated" | "failed";
+    filename?: string;
+    generatedAt?: string;
+    sizeBytes?: number;
+    error?: string;
+  }) {
+    this.database.prepare(`
+      UPDATE daily_analysis_reports
+      SET pdf_status = ?, pdf_filename = ?, pdf_generated_at = ?, pdf_size_bytes = ?, pdf_error = ?
+      WHERE id = ?
+    `).run(
+      metadata.status,
+      metadata.filename || null,
+      metadata.generatedAt || null,
+      metadata.sizeBytes ?? null,
+      metadata.error || null,
+      id
+    );
+  }
+
+  private mapStoredReport(row: StoredReportRow): AnalysisReport {
+    return {
+      ...(JSON.parse(row.reportJson) as AnalysisReport),
+      id: row.id,
+      generationKey: row.generationKey,
+      generationStatus: row.generationStatus,
+      pdfStatus: row.pdfStatus,
+      pdfFilename: row.pdfFilename,
+      pdfGeneratedAt: row.pdfGeneratedAt,
+      pdfSizeBytes: row.pdfSizeBytes,
+      pdfError: row.pdfError
+    };
   }
 }
+
+type StoredReportRow = {
+  id: number;
+  reportJson: string;
+  generationKey: string;
+  generationStatus: AnalysisReport["generationStatus"];
+  pdfStatus: AnalysisReport["pdfStatus"];
+  pdfFilename: string | null;
+  pdfGeneratedAt: string | null;
+  pdfSizeBytes: number | null;
+  pdfError: string | null;
+};

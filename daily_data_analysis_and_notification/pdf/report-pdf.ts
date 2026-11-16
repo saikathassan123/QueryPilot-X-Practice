@@ -265,7 +265,7 @@ export async function saveAnalysisReportPdf(report: AnalysisReport) {
   const filePath = reportPath(report);
   try {
     const existing = await stat(filePath);
-    if (existing.size > 0) return { filename: reportFilename(report), filePath };
+    if (existing.size > 0) return { filename: reportFilename(report), filePath, sizeBytes: existing.size };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -275,7 +275,7 @@ export async function saveAnalysisReportPdf(report: AnalysisReport) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
-  return { filename: reportFilename(report), filePath };
+  return { filename: reportFilename(report), filePath, sizeBytes: pdf.byteLength };
 }
 
 export async function readAnalysisReportPdf(report: AnalysisReport) {

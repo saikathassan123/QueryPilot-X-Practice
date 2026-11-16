@@ -72,6 +72,15 @@ function buildReport(repository: SalesRepository, reportKind: "automatic" | "his
     generatedAt: new Date().toISOString(),
     status: "generated"
   };
+  report.generationKey = [
+    report.reportKind,
+    report.reportingDate,
+    report.periodStart,
+    report.periodEnd,
+    report.comparisonDays ?? "",
+    report.comparisonStart ?? "",
+    report.comparisonEnd ?? ""
+  ].join("|");
   return repository.saveAnalysisReport(report);
 }
 

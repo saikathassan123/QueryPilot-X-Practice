@@ -94,6 +94,13 @@ export type ReportKind = "automatic" | "historical";
 
 export type AnalysisReport = {
   id?: number;
+  generationKey?: string;
+  generationStatus?: "generated" | "failed";
+  pdfStatus?: "not_generated" | "generated" | "failed";
+  pdfFilename?: string | null;
+  pdfGeneratedAt?: string | null;
+  pdfSizeBytes?: number | null;
+  pdfError?: string | null;
   reportKind: ReportKind;
   reportingDate: string;
   periodStart: string;
@@ -127,4 +134,12 @@ export interface SalesRepository {
   saveAnalysisReport(report: AnalysisReport): AnalysisReport;
   getAnalysisReport(id: number): AnalysisReport | null;
   listAnalysisReports(limit?: number): AnalysisReport[];
+  getAnalysisPreferences(): Record<string, string>;
+  updateAnalysisReportPdf(id: number, metadata: {
+    status: "generated" | "failed";
+    filename?: string;
+    generatedAt?: string;
+    sizeBytes?: number;
+    error?: string;
+  }): void;
 }
