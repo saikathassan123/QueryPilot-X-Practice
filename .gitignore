@@ -3,4 +3,9 @@ node_modules
 .env.local
 .env
 *.tsbuildinfo
+.local-data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+daily_data_analysis_and_notification/generated-reports/
 next-env.d.ts

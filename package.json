@@ -6,16 +6,29 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "local-db:init": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs schema.sql",
+    "local-db:demo": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs initial_demo_data.sql",
+    "local-db:day-01": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_01_test_data.sql",
+    "local-db:day-02": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_02_test_data.sql",
+    "local-db:day-03": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_03_test_data.sql",
+    "local-db:day-04": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_04_test_data.sql",
+    "local-db:day-05": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_05_test_data.sql",
+    "local-db:day-06": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_06_test_data.sql",
+    "local-db:day-07": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_07_test_data.sql"
   },
   "dependencies": {
-    "next": "^15.5.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.119.0",
+    "better-sqlite3": "^13.2.0",
     "lucide-react": "^0.468.0",
-    "pg": "^8.14.1"
+    "next": "^15.5.0",
+    "pg": "^8.14.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.14",
     "@types/react": "^19.0.0",
