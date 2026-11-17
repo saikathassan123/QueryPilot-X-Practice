@@ -330,6 +330,17 @@ export class LocalSqliteSalesRepository implements SalesRepository {
     return row ? this.mapStoredReport(row) : null;
   }
 
+  getAnalysisReportByGenerationKey(generationKey: string): AnalysisReport | null {
+    const row = this.database.prepare(`
+      SELECT id, report_json AS reportJson, generation_key AS generationKey,
+        generation_status AS generationStatus, pdf_status AS pdfStatus,
+        pdf_filename AS pdfFilename, pdf_generated_at AS pdfGeneratedAt,
+        pdf_size_bytes AS pdfSizeBytes, pdf_error AS pdfError
+      FROM daily_analysis_reports WHERE generation_key = ?
+    `).get(generationKey) as StoredReportRow | undefined;
+    return row ? this.mapStoredReport(row) : null;
+  }
+
   listAnalysisReports(limit = 50): AnalysisReport[] {
     const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
     const rows = this.database.prepare(`

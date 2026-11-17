@@ -142,4 +142,5 @@ export interface SalesRepository {
     sizeBytes?: number;
     error?: string;
   }): void;
+  getAnalysisReportByGenerationKey(generationKey: string): AnalysisReport | null;
 }

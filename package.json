@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "daily-report:run": "tsx daily_data_analysis_and_notification/scripts/daily-report-run.ts",
+    "test:daily-report": "tsx --test daily_data_analysis_and_notification/tests/daily-report.test.ts",
     "local-db:init": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs schema.sql",
     "local-db:demo": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs initial_demo_data.sql",
     "local-db:day-01": "node daily_data_analysis_and_notification/scripts/local-sqlite.mjs day_01_test_data.sql",
@@ -35,6 +37,7 @@
     "@types/pg": "^8.11.14",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.8.3"
   },
   "engines": {

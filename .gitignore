@@ -9,4 +9,5 @@ node_modules
 *.sqlite-wal
 daily_data_analysis_and_notification/generated-reports/
 .local-data/reports/
+Generated PDFs/*.pdf
 next-env.d.ts

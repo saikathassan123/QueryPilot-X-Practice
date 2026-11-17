@@ -56,7 +56,7 @@ function average(days: DailyPerformance[]): AnalysisKpis {
   };
 }
 
-function buildReport(repository: SalesRepository, reportKind: "automatic" | "historical", reportingDate: string, periodStart: string, periodEnd: string, comparisonDays: number | null, comparisonStart: string | null, comparisonEnd: string | null) {
+function buildReport(repository: SalesRepository, reportKind: "automatic" | "historical", reportingDate: string, periodStart: string, periodEnd: string, comparisonDays: number | null, comparisonStart: string | null, comparisonEnd: string | null, persist = true) {
   assertRange(periodStart, periodEnd);
   if (comparisonStart && comparisonEnd) assertRange(comparisonStart, comparisonEnd);
   const report: AnalysisReport = {
@@ -81,7 +81,7 @@ function buildReport(repository: SalesRepository, reportKind: "automatic" | "his
     report.comparisonStart ?? "",
     report.comparisonEnd ?? ""
   ].join("|");
-  return repository.saveAnalysisReport(report);
+  return persist ? repository.saveAnalysisReport(report) : report;
 }
 
 export function comparisonDays(value: number | string | null | undefined) {
@@ -97,6 +97,14 @@ export function generateAutomaticReport(repository: SalesRepository, requestedDa
   repository.setAnalysisPreference("comparisonDays", String(days));
   const reportingDate = addDays(dhakaDate(), -1);
   return buildReport(repository, "automatic", reportingDate, reportingDate, reportingDate, days, addDays(reportingDate, -days), addDays(reportingDate, -1));
+}
+
+export function generateAutomaticReportForDate(repository: SalesRepository, reportingDate: string, requestedDays?: number, persist = true) {
+  if (!validDate(reportingDate)) throw new Error("Reporting date must use YYYY-MM-DD.");
+  const days = requestedDays === undefined
+    ? comparisonDays(repository.getAnalysisPreference("comparisonDays") || DEFAULT_COMPARISON_DAYS)
+    : comparisonDays(requestedDays);
+  return buildReport(repository, "automatic", reportingDate, reportingDate, reportingDate, days, addDays(reportingDate, -days), addDays(reportingDate, -1), persist);
 }
 
 export type HistoricalRange = "week" | "three-months" | "year" | "all" | "custom";

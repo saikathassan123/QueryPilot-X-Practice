@@ -3,18 +3,21 @@ import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const databaseDirectory = path.join(process.cwd(), ".local-data");
-const databasePath = path.join(databaseDirectory, "querypilot-practice.sqlite");
+const databasePath = process.env.QUERYPILOT_DATABASE_PATH || path.join(databaseDirectory, "querypilot-practice.sqlite");
 const migrationDirectory = path.join(process.cwd(), "daily_data_analysis_and_notification", "database", "migrations");
 let database: Database.Database | undefined;
 
 function applyMigrations(connection: Database.Database) {
-  connection.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  const migrationTable = connection.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+  ).get();
+  if (!migrationTable) connection.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
   const migrations = readdirSync(migrationDirectory)
     .filter(fileName => /^\d+_.+\.sql$/.test(fileName))
@@ -35,7 +38,8 @@ function applyMigrations(connection: Database.Database) {
 
 function initializeDatabase(connection: Database.Database) {
   connection.pragma("foreign_keys = ON");
-  connection.pragma("journal_mode = WAL");
+  const journalMode = String(connection.pragma("journal_mode", { simple: true }));
+  if (journalMode.toLowerCase() !== "wal") connection.pragma("journal_mode = WAL");
   connection.pragma("busy_timeout = 5000");
   applyMigrations(connection);
 }
@@ -47,7 +51,7 @@ export function getLocalDatabase() {
 
   if (!database) {
     mkdirSync(databaseDirectory, { recursive: true });
-    database = new Database(databasePath);
+    database = new Database(databasePath, { timeout: 30000 });
     initializeDatabase(database);
   }
 
@@ -56,4 +60,10 @@ export function getLocalDatabase() {
 
 export function getLocalDatabasePath() {
   return databasePath;
+}
+
+export function getLocalDatabaseReadOnly() {
+  const connection = new Database(databasePath, { readonly: true, fileMustExist: true, timeout: 30000 });
+  connection.pragma("busy_timeout = 30000");
+  return connection;
 }
