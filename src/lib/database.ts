@@ -2,6 +2,11 @@ import { Client } from "pg";
 
 export type Table = { name: string; columns: string[] };
 
+function quoteIdentifier(value: string) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) throw new Error("Invalid database identifier.");
+  return `"${value.replace(/"/g, `""`)}"`;
+}
+
 export function validateSupabaseUri(value: string, projectRef?: string) {
   if (value.length > 1500) throw new Error("Connection string is too long.");
 
@@ -55,7 +60,27 @@ export async function getPostgresTables(connectionString: string): Promise<Table
       if (!tables.has(row.table_name)) tables.set(row.table_name, []);
       tables.get(row.table_name)?.push(row.column_name);
     }
+
     return [...tables].map(([name, columns]) => ({ name, columns }));
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+export async function getPostgresRows(connectionString: string, table: string) {
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: true },
+    connectionTimeoutMillis: 6500,
+    query_timeout: 12000
+  });
+  try {
+    await client.connect();
+    await client.query("BEGIN READ ONLY");
+    await client.query("SET LOCAL statement_timeout = '9000ms'");
+    const result = await client.query(`SELECT * FROM public.${quoteIdentifier(table)} LIMIT 10000`);
+    await client.query("ROLLBACK");
+    return result.rows as Array<Record<string, unknown>>;
   } finally {
     await client.end().catch(() => undefined);
   }

@@ -93,6 +93,8 @@ export type DailyPerformance = AnalysisKpis & { date: string };
 export type ReportKind = "automatic" | "historical";
 
 export type AnalysisReport = {
+  availableMetrics?: string[];
+  dataset?: { table: string; mapping?: Record<string, string | undefined> };
   id?: number;
   generationKey?: string;
   generationStatus?: "generated" | "failed";

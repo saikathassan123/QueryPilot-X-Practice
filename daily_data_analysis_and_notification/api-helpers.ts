@@ -1,21 +1,45 @@
-﻿import { NextResponse } from "next/server";
-import { sameOrigin } from "@/lib/session";
+import { NextResponse } from "next/server";
+import { readSession, sameOrigin, saveSession, type Session } from "@/lib/session";
+import { refreshSession } from "@/lib/supabase";
 import { CUSTOMER_GENDERS, SALE_STATUSES, type SaleInput } from "./types";
 
-export function developmentOnly() {
-  if (process.env.NODE_ENV !== "development") {
-    return NextResponse.json({ error: "Local development data is disabled outside development mode." }, { status: 404 });
+export async function requireDailyAnalysisAccess(request: Request, protectOrigin = false) {
+  if (protectOrigin && !sameOrigin(request)) {
+    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+  }
+  const session = await readSession();
+  if (!session || (!session.dbUrl && !(session.mode === "oauth" && session.projectRef && session.accessToken))) {
+    return NextResponse.json({ error: "Connect a Supabase project before using Daily Analysis." }, { status: 401 });
   }
   return null;
 }
 
-export async function requireDailyAnalysisAccess(request: Request, protectOrigin = false) {
-  const unavailable = developmentOnly();
-  if (unavailable) return unavailable;
-  if (protectOrigin && !sameOrigin(request)) {
-    return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+export async function readDailyAnalysisSession(
+  request: Request,
+  protectOrigin = false
+): Promise<{ session: Session; applyCookie: (response: NextResponse) => NextResponse } | { response: NextResponse }> {
+  const denied = await requireDailyAnalysisAccess(request, protectOrigin);
+  if (denied) return { response: denied };
+  const session = await readSession();
+  if (!session) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
+  if (session.mode === "oauth") {
+    try {
+      const refreshed = await refreshSession(session);
+      return {
+        session: refreshed.session,
+        applyCookie: (response: NextResponse) => {
+          if (refreshed.refreshed) {
+            const { issuedAt: _issuedAt, ...data } = refreshed.session;
+            saveSession(response, data);
+          }
+          return response;
+        }
+      };
+    } catch (error) {
+      return { response: NextResponse.json({ error: error instanceof Error ? error.message : "Supabase authorization expired." }, { status: 401 }) };
+    }
   }
-  return null;
+  return { session, applyCookie: (response: NextResponse) => response };
 }
 
 function isDate(value: unknown): value is string {

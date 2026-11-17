@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateAutomaticReport, generateHistoricalReport, listReports, type HistoricalRange } from "@/../daily_data_analysis_and_notification/analysis-service";
-import { requireDailyAnalysisAccess } from "@/../daily_data_analysis_and_notification/api-helpers";
-import { getSalesRepository } from "@/../daily_data_analysis_and_notification/database/repository";
+import { generateAutomaticReport, generateHistoricalReport, type HistoricalRange } from "@/../daily_data_analysis_and_notification/analysis-service";
+import { readDailyAnalysisSession } from "@/../daily_data_analysis_and_notification/api-helpers";
+import { createSupabaseSalesRepository, type DatasetSelection } from "@/../daily_data_analysis_and_notification/database/supabase-sales-repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const denied = await requireDailyAnalysisAccess(request);
-  if (denied) return denied;
+  const access = await readDailyAnalysisSession(request);
+  if ("response" in access) return access.response;
   const limit = Number(request.nextUrl.searchParams.get("limit") || 50);
   if (!Number.isInteger(limit) || limit < 1) return NextResponse.json({ error: "limit must be a positive integer." }, { status: 400 });
-  return NextResponse.json({ reports: listReports(getSalesRepository(), limit) }, { headers: { "Cache-Control": "no-store" } });
+  return access.applyCookie(NextResponse.json({ reports: [] }, { headers: { "Cache-Control": "no-store" } }));
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireDailyAnalysisAccess(request, true);
-  if (denied) return denied;
+  const access = await readDailyAnalysisSession(request, true);
+  if ("response" in access) return access.response;
   let body: Record<string, unknown>;
   try {
     body = await request.json() as Record<string, unknown>;
@@ -24,17 +24,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A valid JSON body is required." }, { status: 400 });
   }
   try {
-    const repository = getSalesRepository();
+    const selection = body.dataset && typeof body.dataset === "object" ? body.dataset as DatasetSelection : { table: "daily_sales_orders" };
+    if (typeof selection.table !== "string" || !selection.table) return NextResponse.json({ error: "Select a Supabase table." }, { status: 400 });
+    const { repository, table, mapping, availableMetrics } = await createSupabaseSalesRepository(access.session, selection);
     if (body.kind === "historical") {
       const range = String(body.range);
       if (!["week", "three-months", "year", "all", "custom"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
-      return NextResponse.json({
-        report: generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined)
-      }, { status: 201 });
+      const report = generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined);
+      return access.applyCookie(NextResponse.json({ report: { ...report, dataset: { table: table.name, mapping }, availableMetrics } }, { status: 201 }));
     }
-    return NextResponse.json({
-      report: generateAutomaticReport(repository, body.comparisonDays === undefined ? undefined : Number(body.comparisonDays))
-    }, { status: 201 });
+    const report = generateAutomaticReport(repository, body.comparisonDays === undefined ? undefined : Number(body.comparisonDays));
+    return access.applyCookie(NextResponse.json({ report: { ...report, dataset: { table: table.name, mapping }, availableMetrics } }, { status: 201 }));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not generate the report." }, { status: 400 });
   }

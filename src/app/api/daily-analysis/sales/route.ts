@@ -1,26 +1,25 @@
-﻿import { NextRequest, NextResponse } from "next/server";
-import { isUniqueConstraintError, parseSaleInput, requireDailyAnalysisAccess } from "@/../daily_data_analysis_and_notification/api-helpers";
-import { getSalesRepository } from "@/../daily_data_analysis_and_notification/database/repository";
+import { NextRequest, NextResponse } from "next/server";
+import { readDailyAnalysisSession } from "@/../daily_data_analysis_and_notification/api-helpers";
+import { createSupabaseSalesRepository } from "@/../daily_data_analysis_and_notification/database/supabase-sales-repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const denied = await requireDailyAnalysisAccess(request);
-  if (denied) return denied;
+  const access = await readDailyAnalysisSession(request);
+  if ("response" in access) return access.response;
   const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 100);
   if (!Number.isInteger(rawLimit) || rawLimit < 1) return NextResponse.json({ error: "limit must be a positive integer." }, { status: 400 });
-  return NextResponse.json({ sales: getSalesRepository().listSales(rawLimit) }, { headers: { "Cache-Control": "no-store" } });
+  try {
+    const { repository } = await createSupabaseSalesRepository(access.session, { table: request.nextUrl.searchParams.get("table") || "daily_sales_orders" });
+    return access.applyCookie(NextResponse.json({ sales: repository.listSales(rawLimit) }, { headers: { "Cache-Control": "no-store" } }));
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load sales records." }, { status: 400 });
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await requireDailyAnalysisAccess(request, true);
-  if (denied) return denied;
-  try {
-    const sale = getSalesRepository().insertSale(parseSaleInput(await request.json()));
-    return NextResponse.json({ sale }, { status: 201 });
-  } catch (error) {
-    if (isUniqueConstraintError(error)) return NextResponse.json({ error: "This order line already exists." }, { status: 409 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not insert sale." }, { status: 400 });
-  }
+  const access = await readDailyAnalysisSession(request, true);
+  if ("response" in access) return access.response;
+  return NextResponse.json({ error: "Supabase Daily Analysis is read-only." }, { status: 405 });
 }

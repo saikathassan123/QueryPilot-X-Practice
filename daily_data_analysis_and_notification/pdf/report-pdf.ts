@@ -115,6 +115,10 @@ function kpiDefinitions(): Array<{ key: KpiKey; name: string; positive: "higher"
   ];
 }
 
+function isMetricAvailable(report: AnalysisReport, key: KpiKey) {
+  return !report.availableMetrics || report.availableMetrics.includes(key);
+}
+
 function drawKpiCards(document: PDFKit.PDFDocument, report: AnalysisReport, y: number) {
   const definitions = kpiDefinitions();
   const cellWidth = (CONTENT_WIDTH - 12) / 2;
@@ -126,16 +130,17 @@ function drawKpiCards(document: PDFKit.PDFDocument, report: AnalysisReport, y: n
       const definition = definitions[index + column];
       if (!definition) continue;
       const x = MARGIN + column * (cellWidth + 12);
+      const available = isMetricAvailable(report, definition.key);
       const current = metricValue(report.current, definition.key);
-      const previousValue = previous ? metricValue(previous, definition.key) : null;
-      const delta = previousValue === null ? null : comparisonDelta(normalizedValue(report, report.current, definition.key), previousValue);
+      const previousValue = available && previous ? metricValue(previous, definition.key) : null;
+      const delta = !available || previousValue === null ? null : comparisonDelta(normalizedValue(report, report.current, definition.key), previousValue);
       const indicatorColor = delta === null ? COLORS.muted : delta > 0 ? COLORS.green : delta < 0 ? COLORS.red : COLORS.muted;
-      const indicator = delta === null ? "No comparison" : delta > 0 ? `▲ ${Math.abs(delta).toFixed(1)}%` : delta < 0 ? `▼ ${Math.abs(delta).toFixed(1)}%` : "• 0.0%";
+      const indicator = !available ? "Column not mapped" : delta === null ? "No comparison" : delta > 0 ? `▲ ${Math.abs(delta).toFixed(1)}%` : delta < 0 ? `▼ ${Math.abs(delta).toFixed(1)}%` : "• 0.0%";
       document.roundedRect(x, rowY, cellWidth, cellHeight, 6).fillColor(COLORS.light).fillAndStroke(COLORS.border);
       addText(document, definition.name, x + 11, rowY + 9, { fontSize: 8, fillColor: COLORS.muted });
-      addText(document, kpiFormat(definition.key, current), x + 11, rowY + 24, { font: "Helvetica-Bold", fontSize: 14 });
+      addText(document, available ? kpiFormat(definition.key, current) : "Unavailable", x + 11, rowY + 24, { font: "Helvetica-Bold", fontSize: 14 });
       addText(document, indicator, x + 11, rowY + 47, { font: "Helvetica-Bold", fontSize: 8, fillColor: indicatorColor });
-      if (previousValue !== null) {
+      if (available && previousValue !== null) {
         addText(document, `Prev daily avg: ${kpiFormat(definition.key, previousValue)}`, x + 105, rowY + 48, { fontSize: 6.5, fillColor: COLORS.muted, width: cellWidth - 116, align: "right" });
       }
     }
@@ -316,11 +321,12 @@ function drawComparisonTable(document: PDFKit.PDFDocument, report: AnalysisRepor
   ["KPI", "Current", "Previous daily avg", "Change"].forEach((value, index) => addText(document, value, columns[index], y + 7, { font: "Helvetica-Bold", fontSize: 7.5, fillColor: COLORS.muted, width: index === 0 ? 145 : 95, align: index === 0 ? "left" : "right" }));
   y += 27;
   for (const definition of kpiDefinitions()) {
+    const available = isMetricAvailable(report, definition.key);
     const current = metricValue(report.current, definition.key);
-    const previousValue = previous ? metricValue(previous, definition.key) : null;
-    const delta = previousValue === null ? null : comparisonDelta(normalizedValue(report, report.current, definition.key), previousValue);
+    const previousValue = available && previous ? metricValue(previous, definition.key) : null;
+    const delta = !available || previousValue === null ? null : comparisonDelta(normalizedValue(report, report.current, definition.key), previousValue);
     addText(document, definition.name, columns[0], y + 3, { fontSize: 8, width: 145 });
-    addText(document, kpiFormat(definition.key, current), columns[1], y + 3, { fontSize: 8, width: 95, align: "right" });
+    addText(document, available ? kpiFormat(definition.key, current) : "Unavailable", columns[1], y + 3, { fontSize: 8, width: 95, align: "right" });
     addText(document, previousValue === null ? "N/A" : kpiFormat(definition.key, previousValue), columns[2], y + 3, { fontSize: 8, fillColor: COLORS.muted, width: 95, align: "right" });
     addText(document, delta === null ? "N/A" : `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`, columns[3], y + 3, { font: "Helvetica-Bold", fontSize: 8, fillColor: delta === null ? COLORS.muted : delta >= 0 ? COLORS.green : COLORS.red, width: 86, align: "right" });
     document.moveTo(MARGIN, y + 19).lineTo(PAGE_WIDTH - MARGIN, y + 19).strokeColor(COLORS.border).lineWidth(0.5).stroke();
