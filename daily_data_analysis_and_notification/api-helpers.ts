@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from "next/server";
-import { readSession, sameOrigin } from "@/lib/session";
+import { sameOrigin } from "@/lib/session";
 import { CUSTOMER_GENDERS, SALE_STATUSES, type SaleInput } from "./types";
 
 export function developmentOnly() {
@@ -14,9 +14,6 @@ export async function requireDailyAnalysisAccess(request: Request, protectOrigin
   if (unavailable) return unavailable;
   if (protectOrigin && !sameOrigin(request)) {
     return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
-  }
-  if (!await readSession()) {
-    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
   return null;
 }

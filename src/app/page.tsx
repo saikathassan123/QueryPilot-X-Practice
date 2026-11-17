@@ -146,7 +146,7 @@ export default function Home() {
 
   return (
     <div className="app">
-      {screen !== "dashboard" && <header className="top-brand"><div className="brand-mark"><Database size={19}/></div><span>Query<strong>Pilot</strong></span></header>}
+      {(screen === "home" || screen === "setup") && <header className="top-brand"><div className="brand-mark"><Database size={19}/></div><span>Query<strong>Pilot</strong></span></header>}
 
       {!session && <div className="loading-screen"><Database size={30}/><p>Loading QueryPilot...</p></div>}
 
@@ -158,6 +158,7 @@ export default function Home() {
           <p>One place for smart analysis, daily updates, and fraud monitoring.<br/>Connect a Supabase project to begin.</p>
           <button className="primary welcome-button" onClick={beginSetup}><Database size={18}/> Connect your database <ArrowRight size={17}/></button>
           <div className="hint"><ShieldCheck size={15}/> Secure, read-only Supabase connection</div>
+          <button className="secondary-button" onClick={() => { setError(""); setScreen("daily-analysis"); }}><Bell size={17}/> Open daily analysis</button>
         </main>
       )}
 
@@ -237,6 +238,10 @@ export default function Home() {
             </aside>
           </div>
         </div>
+      )}
+
+      {screen === "daily-analysis" && !session && (
+        <main className="main-panel standalone-analysis"><DailyAnalysisDashboard onBack={() => setScreen("home")}/></main>
       )}
 
       {error && <div className="error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Close message">×</button></div>}
