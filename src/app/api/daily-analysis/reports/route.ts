@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateAutomaticReport, generateHistoricalReport, type HistoricalRange } from "@/../daily_data_analysis_and_notification/analysis-service";
+import { addDays, generateAutomaticReport, generateAutomaticReportForDate, generateHistoricalReport, type HistoricalRange } from "@/../daily_data_analysis_and_notification/analysis-service";
 import { readDailyAnalysisSession } from "@/../daily_data_analysis_and_notification/api-helpers";
 import { createSupabaseSalesRepository, type DatasetSelection } from "@/../daily_data_analysis_and_notification/database/supabase-sales-repository";
 
@@ -30,10 +30,24 @@ export async function POST(request: NextRequest) {
     if (body.kind === "historical") {
       const range = String(body.range);
       if (!["week", "month", "three-months", "year", "all", "custom"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
-      const report = generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined);
+      let report = generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined);
+      if (range !== "custom" && report.current.totalProductLines === 0) {
+        const latestDate = repository.getLatestSaleDate();
+        if (latestDate && latestDate < report.periodStart) {
+          const fallbackStart = range === "week" ? addDays(latestDate, -6) : range === "month" ? addDays(latestDate, -29) : report.periodStart;
+          report = generateHistoricalReport(repository, "custom", fallbackStart, latestDate);
+        }
+      }
       return access.applyCookie(NextResponse.json({ report: { ...report, dataset: { table: table.name, mapping }, availableMetrics } }, { status: 201 }));
     }
-    const report = generateAutomaticReport(repository, body.comparisonDays === undefined ? undefined : Number(body.comparisonDays));
+    const comparisonDays = body.comparisonDays === undefined ? undefined : Number(body.comparisonDays);
+    let report = generateAutomaticReport(repository, comparisonDays);
+    if (report.current.totalProductLines === 0 && Object.values(report.current.statusDistribution).every(count => count === 0)) {
+      const latestDate = repository.getLatestSaleDate();
+      if (latestDate) {
+        report = generateAutomaticReportForDate(repository, latestDate, comparisonDays);
+      }
+    }
     return access.applyCookie(NextResponse.json({ report: { ...report, dataset: { table: table.name, mapping }, availableMetrics } }, { status: 201 }));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not generate the report." }, { status: 400 });

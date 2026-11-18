@@ -278,12 +278,18 @@ function drawCategoryDonut(document: PDFKit.PDFDocument, report: AnalysisReport,
   const breakdown = validCategoryBreakdown(report);
   if (!breakdown) return;
   y = drawSectionTitle(document, "Revenue Mix by Category", y);
-  const centerX = MARGIN + 155;
+  const items = breakdown.items.length > 8
+    ? [
+        ...breakdown.items.slice(0, 7),
+        { label: "Other", revenue: breakdown.items.slice(7).reduce((sum, item) => sum + safeNumber(item.revenue), 0) }
+      ]
+    : breakdown.items;
+  const centerX = MARGIN + 130;
   const centerY = y + 105;
   const radius = 78;
-  const colors = [COLORS.green, "#3d78b8", "#8a62b5", "#d17832", "#b24c72"];
+  const colors = [COLORS.green, "#3d78b8", "#8a62b5", "#d17832", "#b24c72", "#2d8a8a", "#6e7a8a", "#9ea6b2"];
   let startAngle = -Math.PI / 2;
-  breakdown.items.forEach((item, index) => {
+  items.forEach((item, index) => {
     const ratio = safeNumber(item.revenue) / breakdown.total;
     const endAngle = startAngle + ratio * Math.PI * 2;
     const points: Array<[number, number]> = [[centerX, centerY]];
@@ -297,16 +303,16 @@ function drawCategoryDonut(document: PDFKit.PDFDocument, report: AnalysisReport,
     startAngle = endAngle;
   });
   document.circle(centerX, centerY, 38).fillColor("#ffffff").fill();
-  addText(document, "Revenue", centerX - 30, centerY - 5, { font: "Helvetica-Bold", fontSize: 8, width: 60, align: "center" });
-  addText(document, "mix", centerX - 30, centerY + 7, { fontSize: 7, fillColor: COLORS.muted, width: 60, align: "center" });
-  const legendX = MARGIN + 300;
-  breakdown.items.forEach((item, index) => {
+  addText(document, "Revenue", centerX - 30, centerY - 5, { font: "Helvetica-Bold", fontSize: 8, width: 60, align: "center", lineBreak: false });
+  addText(document, "mix", centerX - 30, centerY + 7, { fontSize: 7, fillColor: COLORS.muted, width: 60, align: "center", lineBreak: false });
+  const legendX = MARGIN + 245;
+  items.forEach((item, index) => {
     const ratio = safeNumber(item.revenue) / breakdown.total;
     const rowY = y + index * 25;
     document.roundedRect(legendX, rowY + 3, 9, 9, 2).fillColor(colors[index % colors.length]).fill();
-    addText(document, item.label, legendX + 16, rowY, { fontSize: 8, width: 116 });
-    addText(document, `${(ratio * 100).toFixed(1)}%`, legendX + 130, rowY, { font: "Helvetica-Bold", fontSize: 8, width: 46, align: "right" });
-    addText(document, money(item.revenue), legendX + 182, rowY, { fontSize: 7, fillColor: COLORS.muted, width: 65, align: "right" });
+    addText(document, item.label, legendX + 16, rowY, { fontSize: 8, width: 122, lineBreak: false, ellipsis: true });
+    addText(document, `${(ratio * 100).toFixed(1)}%`, legendX + 142, rowY, { font: "Helvetica-Bold", fontSize: 8, width: 42, align: "right", lineBreak: false });
+    addText(document, money(item.revenue), legendX + 188, rowY, { fontSize: 7, fillColor: COLORS.muted, width: 66, align: "right", lineBreak: false });
   });
 }
 
@@ -352,6 +358,7 @@ function drawInsights(document: PDFKit.PDFDocument, report: AnalysisReport, y: n
     addText(document, `• ${insight}`, MARGIN + 12, y + 7, { fontSize: 8.5, width: CONTENT_WIDTH - 24, lineGap: 2 });
     y += height + 6;
   }
+  return y;
 }
 
 function drawNotes(document: PDFKit.PDFDocument, y: number) {
@@ -436,8 +443,8 @@ export async function renderAnalysisReport(report: AnalysisReport) {
   y = CONTENT_TOP;
   y = drawComparisonTable(document, report, y);
   y += 18;
-  drawInsights(document, report, y);
-  drawNotes(document, 590);
+  y = drawInsights(document, report, y);
+  drawNotes(document, Math.max(y + 12, 590));
   drawFooter(document, state.pageNumber);
 
   if (validCategoryBreakdown(report)) {

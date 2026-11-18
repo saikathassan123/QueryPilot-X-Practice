@@ -15,14 +15,14 @@ export type DatasetMapping = {
 };
 
 const aliases: Record<keyof DatasetMapping, string[]> = {
-  orderId: ["order_id", "orderid", "id", "invoice_id", "transaction_id", "sale_id", "order_no", "order_number"],
-  orderDate: ["order_date", "orderdate", "date", "sale_date", "created_at", "transaction_date", "invoice_date", "ordered_at"],
-  product: ["product_name", "product", "item_name", "item", "sku", "title", "product_title"],
-  category: ["category", "product_category", "item_category", "department", "type"],
-  quantity: ["quantity", "qty", "units", "units_sold", "item_quantity", "order_quantity"],
-  revenue: ["total_revenue", "revenue", "sales", "amount", "total_amount", "net_sales", "total_price", "total", "unit_price", "price"],
-  cost: ["unit_cost", "cost", "total_cost", "item_cost", "cogs"],
-  profit: ["gross_profit", "profit", "net_profit", "total_profit"],
+  orderId: ["order_id", "orderid", "id", "invoice_id", "transaction_id", "sale_id", "order_no", "order_number", "tx_id", "receipt_id", "bill_no"],
+  orderDate: ["order_date", "orderdate", "date", "sale_date", "created_at", "transaction_date", "invoice_date", "ordered_at", "purchased_at", "timestamp", "order_time"],
+  product: ["product_name", "product", "item_name", "item", "sku", "title", "product_title", "name"],
+  category: ["category", "product_category", "item_category", "department", "type", "group"],
+  quantity: ["quantity", "qty", "units", "units_sold", "item_quantity", "order_quantity", "count"],
+  revenue: ["total_revenue", "revenue", "sales", "amount", "total_amount", "net_sales", "total_price", "total", "unit_price", "price", "subtotal", "grand_total", "net_amount", "gross_total", "sale_amount", "order_total"],
+  cost: ["unit_cost", "cost", "total_cost", "item_cost", "cogs", "cost_price", "purchase_price", "buying_price"],
+  profit: ["gross_profit", "profit", "net_profit", "total_profit", "earnings"],
   discount: ["discount_amount", "discount", "discount_percent", "discount_rate", "discount_pct"],
   status: ["status", "order_status", "sale_status", "payment_status", "fulfillment_status"],
   gender: ["customer_gender", "gender", "sex"],

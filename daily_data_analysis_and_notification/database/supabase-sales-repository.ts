@@ -164,9 +164,12 @@ function inRange(row: SaleRecord, start: string, end: string) {
   return row.orderDate >= start && row.orderDate <= end;
 }
 
+const COMPLETED_STATUSES = new Set([
+  "completed", "complete", "delivered", "paid", "success", "successful", "fulfilled", "done", "unavailable"
+]);
+
 function completed(row: SaleRecord) {
-  const status = row.status.toLowerCase();
-  return status === "completed" || status === "complete" || status === "unavailable";
+  return COMPLETED_STATUSES.has(row.status.trim().toLowerCase());
 }
 
 function kpis(rows: SaleRecord[]): AnalysisKpis {
@@ -242,7 +245,10 @@ export class SupabaseSalesRepository implements SalesRepository {
     const rows = this.rows.filter(row => inRange(row, periodStart, periodEnd));
     const byStatus = new Map<SaleStatus, Set<string>>(SALE_STATUSES.map(status => [status, new Set<string>()]));
     for (const row of rows) {
-      const status = SALE_STATUSES.find(value => value.toLowerCase() === row.status.toLowerCase());
+      const normalized = row.status.trim().toLowerCase();
+      const status = COMPLETED_STATUSES.has(normalized)
+        ? "Completed"
+        : SALE_STATUSES.find(value => value.toLowerCase() === normalized);
       if (status) byStatus.get(status)?.add(row.orderId);
     }
     const statusDistribution = Object.fromEntries(
@@ -296,6 +302,11 @@ export class SupabaseSalesRepository implements SalesRepository {
   getFirstSaleDate() {
     if (!this.rows.length) return null;
     return this.rows.reduce((min, row) => (row.orderDate < min ? row.orderDate : min), this.rows[0].orderDate);
+  }
+
+  getLatestSaleDate() {
+    if (!this.rows.length) return null;
+    return this.rows.reduce((max, row) => (row.orderDate > max ? row.orderDate : max), this.rows[0].orderDate);
   }
 
   getAnalysisPreference(key: string) { return this.preferences.get(key) || null; }
