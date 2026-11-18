@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const { repository, table, mapping, availableMetrics } = await createSupabaseSalesRepository(access.session, selection);
     if (body.kind === "historical") {
       const range = String(body.range);
-      if (!["week", "three-months", "year", "all", "custom"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
+      if (!["week", "month", "three-months", "year", "all", "custom"].includes(range)) return NextResponse.json({ error: "Invalid historical range." }, { status: 400 });
       const report = generateHistoricalReport(repository, range as HistoricalRange, typeof body.start === "string" ? body.start : undefined, typeof body.end === "string" ? body.end : undefined);
       return access.applyCookie(NextResponse.json({ report: { ...report, dataset: { table: table.name, mapping }, availableMetrics } }, { status: 201 }));
     }

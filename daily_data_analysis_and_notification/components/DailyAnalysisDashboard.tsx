@@ -1,21 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, CalendarDays, Database, DollarSign, Download, RefreshCw, Settings, ShieldCheck, Star, TrendingUp, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Activity, BarChart3, CalendarDays, Clock, Database, DollarSign, Download, RefreshCw, ShieldCheck, SlidersHorizontal, Star, TrendingUp, type LucideIcon } from "lucide-react";
 import type { AnalysisDimension, AnalysisReport } from "../types";
 import type { AnalysisSettings } from "../settings";
 import { detectDatasetColumns, type DatasetMapping } from "../database/dataset-mapping";
 import type { Table } from "../../src/lib/database";
 
 type Props = { onBack: () => void };
+type DayMode = "daily" | "weekly" | "monthly" | "manual";
+
 const mappingFields = [
   ["orderId", "Order ID"], ["orderDate", "Order date"], ["product", "Product"], ["category", "Category"],
   ["quantity", "Quantity"], ["revenue", "Revenue / price"], ["cost", "Cost"], ["profit", "Profit"], ["discount", "Discount"],
   ["status", "Order status"], ["gender", "Customer gender"], ["region", "Region"], ["rating", "Customer rating"]
 ] as const;
+
 const money = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const number = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 const displayMetric = (report: AnalysisReport, key: string, value: string) => !report.availableMetrics || report.availableMetrics.includes(key) ? value : "Unavailable";
+
+function currentClockInTimezone(timeZone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).formatToParts(new Date()).reduce<Record<string, string>>((acc, part) => {
+      if (part.type !== "literal") acc[part.type] = part.value;
+      return acc;
+    }, {});
+    const hour = parts.hour === "24" ? "00" : parts.hour;
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${hour}:${parts.minute}` };
+  } catch {
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    return { date, time };
+  }
+}
 
 function MiniBars({ title, items, valueKey }: { title: string; items: AnalysisDimension[]; valueKey: "revenue" | "orders" | "units" }) {
   const max = Math.max(...items.map(item => item[valueKey]), 1);
@@ -40,22 +67,21 @@ function Trend({ report, metric, title, format }: {
 export default function DailyAnalysisDashboard({ onBack }: Props) {
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [history, setHistory] = useState<AnalysisReport[]>([]);
-  const [comparisonDays, setComparisonDays] = useState("30");
-  const [customDays, setCustomDays] = useState("30");
-  const [range, setRange] = useState("week");
+  const [dayMode, setDayMode] = useState<DayMode>("daily");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [selectedTime, setSelectedTime] = useState("00:15");
+  const [scheduleStatus, setScheduleStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pdfBusyId, setPdfBusyId] = useState<number | null>(null);
   const [pdfMessage, setPdfMessage] = useState("");
-  const [settings, setSettings] = useState<AnalysisSettings>({ comparisonDays: 30, timezone: "Asia/Dhaka", dailyReportEnabled: false, notificationEnabled: false, scheduledTime: "00:15" });
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsBusy, setSettingsBusy] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState("");
+  const [settings, setSettings] = useState<AnalysisSettings>({ comparisonDays: 30, timezone: "Asia/Dhaka", dailyReportEnabled: true, notificationEnabled: false, scheduledTime: "00:15" });
+  const [datasetOpen, setDatasetOpen] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
   const [selectedTable, setSelectedTable] = useState("");
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const lastAutoRunRef = useRef<string>("");
 
   async function loadHistory() {
     try { setHistory(JSON.parse(localStorage.getItem("querypilot.dailyReports") || "[]")); } catch { setHistory([]); }
@@ -94,29 +120,25 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
     }
   }
 
-  async function saveSettings() {
-    setSettingsBusy(true); setSettingsMessage(""); setError("");
-    try {
-      localStorage.setItem("querypilot.dailySettings", JSON.stringify(settings));
-      setComparisonDays(["7", "15", "30", "90", "365"].includes(String(settings.comparisonDays)) ? String(settings.comparisonDays) : "custom");
-      setCustomDays(String(settings.comparisonDays));
-      setSettingsMessage("Settings saved in this browser.");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save report settings.");
-    } finally {
-      setSettingsBusy(false);
-    }
+  function buildPayload(mode: DayMode) {
+    if (mode === "weekly") return { kind: "historical", range: "week" };
+    if (mode === "monthly") return { kind: "historical", range: "month" };
+    if (mode === "manual") return { kind: "historical", range: "custom", start: customStart, end: customEnd };
+    return { comparisonDays: settings.comparisonDays || 30 };
   }
 
-  async function generate(body: Record<string, unknown> = {}) {
+  async function generate(modeOverride?: DayMode) {
+    const activeMode = modeOverride || dayMode;
+    if (activeMode === "manual" && (!/^\d{4}-\d{2}-\d{2}$/.test(customStart) || !/^\d{4}-\d{2}-\d{2}$/.test(customEnd) || customStart > customEnd)) {
+      setError("Select a valid start date and end date for Manual mode.");
+      return;
+    }
     setBusy(true); setError("");
     try {
       if (!selectedTable) throw new Error("Select a Supabase table before generating a report.");
       const dataset = { table: selectedTable, mapping };
       localStorage.setItem("querypilot.dailyDataset", JSON.stringify(dataset));
-      const payload = body.kind === "historical"
-        ? { ...body, dataset }
-        : { comparisonDays: selectedComparisonDays, ...body, dataset };
+      const payload = { ...buildPayload(activeMode), dataset };
       const response = await fetch("/api/daily-analysis/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not generate report.");
@@ -129,6 +151,22 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not generate report.");
     } finally { setBusy(false); }
+  }
+
+  function handleDayModeChange(nextMode: DayMode) {
+    setDayMode(nextMode);
+    setError("");
+    if (nextMode !== "manual" && selectedTable && hasRequiredColumns) {
+      void generate(nextMode);
+    }
+  }
+
+  function handleTimeChange(nextTime: string) {
+    setSelectedTime(nextTime);
+    const updated: AnalysisSettings = { ...settings, scheduledTime: nextTime, dailyReportEnabled: true };
+    setSettings(updated);
+    try { localStorage.setItem("querypilot.dailySettings", JSON.stringify(updated)); } catch { /* ignore */ }
+    setScheduleStatus(nextTime ? `Scheduled daily at ${nextTime} (${updated.timezone})` : "");
   }
 
   async function downloadPdf(target: AnalysisReport) {
@@ -170,8 +208,10 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
       try {
         const parsed = JSON.parse(savedSettings) as AnalysisSettings;
         setSettings(parsed);
-        setComparisonDays(["7", "15", "30", "90", "365"].includes(String(parsed.comparisonDays)) ? String(parsed.comparisonDays) : "custom");
-        setCustomDays(String(parsed.comparisonDays));
+        if (parsed.scheduledTime) {
+          setSelectedTime(parsed.scheduledTime);
+          setScheduleStatus(`Scheduled at ${parsed.scheduledTime} (${parsed.timezone || "Asia/Dhaka"})`);
+        }
       } catch { /* use defaults */ }
     }
     void Promise.all([loadTables(), loadHistory()]).catch(reason => setError(reason instanceof Error ? reason.message : "Could not load Supabase data."));
@@ -180,15 +220,28 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
   const currentTable = useMemo(() => tables.find(table => table.name === selectedTable), [tables, selectedTable]);
   const autoMapping = useMemo<Partial<DatasetMapping>>(() => currentTable ? detectDatasetColumns(currentTable) : {}, [currentTable]);
   const hasRequiredColumns = Boolean((mapping.orderId || autoMapping.orderId) && (mapping.orderDate || autoMapping.orderDate));
+  const customManualRangeValid = dayMode !== "manual" || (/^\d{4}-\d{2}-\d{2}$/.test(customStart) && /^\d{4}-\d{2}-\d{2}$/.test(customEnd) && customStart <= customEnd);
 
   useEffect(() => {
-    if (selectedTable && !report && hasRequiredColumns) void generate();
-  }, [selectedTable]);
+    if (selectedTable && !report && hasRequiredColumns) void generate("daily");
+  }, [selectedTable, hasRequiredColumns]);
+
+  useEffect(() => {
+    if (!selectedTime || !selectedTable || !hasRequiredColumns) return;
+    const checkSchedule = () => {
+      const now = currentClockInTimezone(settings.timezone || "Asia/Dhaka");
+      const slot = `${now.date}|${now.time}`;
+      if (now.time === selectedTime && lastAutoRunRef.current !== slot) {
+        lastAutoRunRef.current = slot;
+        setScheduleStatus(`Auto-generated at ${now.time} (${now.date})`);
+        void generate();
+      }
+    };
+    const timer = window.setInterval(checkSchedule, 10000);
+    return () => window.clearInterval(timer);
+  }, [selectedTime, selectedTable, hasRequiredColumns, settings.timezone, dayMode, customStart, customEnd, mapping]);
 
   const comparison = report?.comparisonDailyAverage;
-  const selectedComparisonDays = comparisonDays === "custom" ? Number(customDays) : Number(comparisonDays);
-  const comparisonDaysValid = Number.isInteger(selectedComparisonDays) && selectedComparisonDays >= 1 && selectedComparisonDays <= 3650;
-  const customHistoricalRangeValid = range !== "custom" || (/^\d{4}-\d{2}-\d{2}$/.test(customStart) && /^\d{4}-\d{2}-\d{2}$/.test(customEnd) && customStart <= customEnd);
   const revenueAvailable = !report?.availableMetrics || report.availableMetrics.includes("totalRevenue");
   const change = useMemo(() => revenueAvailable && report && comparison && comparison.totalRevenue ? ((report.current.totalRevenue - comparison.totalRevenue) / comparison.totalRevenue) * 100 : null, [revenueAvailable, report, comparison]);
 
@@ -197,42 +250,55 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
       <button className="back-button" onClick={onBack}>Back to workspace</button>
       <div className="analysis-toolbar-actions">
         <span className="connection-status" title="Read-only Supabase connection"><ShieldCheck size={14}/> Read-only Supabase{selectedTable ? ` · ${selectedTable}` : ""}</span>
-        <button className="secondary-button" onClick={() => setSettingsOpen(!settingsOpen)}><Settings size={14}/> Settings</button>
-        <button className="secondary-button" disabled={busy || pdfBusyId !== null || !selectedTable || !comparisonDaysValid} onClick={() => void generate({ comparisonDays: selectedComparisonDays })}><RefreshCw size={14} className={busy ? "spinning" : ""}/> Refresh report</button>
+        <button className="secondary-button" onClick={() => setDatasetOpen(!datasetOpen)}><SlidersHorizontal size={14}/> Dataset</button>
+        <button className="secondary-button" disabled={busy || pdfBusyId !== null || !selectedTable || !customManualRangeValid} onClick={() => void generate()}><RefreshCw size={14} className={busy ? "spinning" : ""}/> Refresh</button>
         {report && <button className="secondary-button" disabled={busy || pdfBusyId !== null} onClick={() => void downloadPdf(report)}><Download size={14}/>{pdfBusyId === (report.id || -1) ? "Generating PDF..." : "Download PDF"}</button>}
       </div>
     </div>
+
     <div className="section-heading"><div><div className="section-eyebrow">DAILY ANALYSIS & REPORTS</div><h1>Performance at a glance.</h1><p>Completed orders are recognized; other statuses remain visible separately.</p></div></div>
+
     <div className="report-controls">
-      <label>Supabase table <select value={selectedTable} onChange={event => { setSelectedTable(event.target.value); setMapping({}); setError(""); setReport(null); }}><option value="">Select a table</option>{tables.map(table => <option key={table.name} value={table.name}>{table.name}</option>)}</select></label>
-      {mappingFields.map(([key, label]) => selectedTable && (
-        <label key={key}>{label} <select value={mapping[key] || ""} onChange={event => setMapping({ ...mapping, [key]: event.target.value })}>
-          <option value="">{autoMapping[key] ? `Auto (${autoMapping[key]})` : "Automatic / unavailable"}</option>
-          {currentTable?.columns.map(column => <option key={column} value={column}>{column}</option>)}
-        </select></label>
-      ))}
-      <label>Compare previous <select value={comparisonDays} onChange={event => setComparisonDays(event.target.value)}><option value="7">7 days</option><option value="15">15 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">365 days</option><option value="custom">Custom days</option></select></label>
-      {comparisonDays === "custom" && <><input className="days-input" type="number" min="1" max="3650" value={customDays} onChange={event => setCustomDays(event.target.value)} aria-label="Custom comparison days" aria-invalid={!comparisonDaysValid}/>{!comparisonDaysValid && <span className="input-error">Enter 1-3650 days.</span>}</>}
-      <button className="secondary-button" disabled={busy || !selectedTable || !comparisonDaysValid} onClick={() => void generate({ comparisonDays: selectedComparisonDays })}>Apply comparison</button>
-      <label>Historical <select value={range} onChange={event => setRange(event.target.value)}><option value="week">Last 1 week</option><option value="three-months">Last 3 months</option><option value="year">Last 1 year</option><option value="all">First sale to today</option><option value="custom">Custom dates</option></select></label>
-      {range === "custom" && <><input className="days-input" type="date" value={customStart} onChange={event => setCustomStart(event.target.value)} aria-label="Historical start date"/><input className="days-input" type="date" value={customEnd} onChange={event => setCustomEnd(event.target.value)} aria-label="Historical end date"/>{!customHistoricalRangeValid && <span className="input-error">Enter a valid start and end date.</span>}</>}
-      <button className="secondary-button" disabled={busy || !selectedTable || !customHistoricalRangeValid} onClick={() => void generate({ kind: "historical", range, start: range === "custom" ? customStart : undefined, end: range === "custom" ? customEnd : undefined })}>Generate history</button>
+      <label>
+        <CalendarDays size={14}/> Select day
+        <select aria-label="Select day" value={dayMode} onChange={event => handleDayModeChange(event.target.value as DayMode)} disabled={busy || !selectedTable}>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="manual">Manual</option>
+        </select>
+      </label>
+
+      {dayMode === "manual" && <>
+        <input className="days-input" type="date" value={customStart} onChange={event => setCustomStart(event.target.value)} aria-label="Manual start date"/>
+        <input className="days-input" type="date" value={customEnd} onChange={event => setCustomEnd(event.target.value)} aria-label="Manual end date"/>
+        <button className="secondary-button" disabled={busy || !selectedTable || !customManualRangeValid} onClick={() => void generate("manual")}>Apply</button>
+      </>}
+
+      <label>
+        <Clock size={14}/> Select time
+        <input className="settings-input" type="time" aria-label="Select time" value={selectedTime} onChange={event => handleTimeChange(event.target.value)}/>
+      </label>
+      {scheduleStatus && <span className="schedule-badge">{scheduleStatus}</span>}
     </div>
-    {selectedTable && !hasRequiredColumns && !error && <div className="analysis-empty-panel">Select the <strong>Order ID</strong> and <strong>Order date</strong> columns above, then click <strong>Apply comparison</strong> or <strong>Generate history</strong>.</div>}
+
+    {(datasetOpen || (selectedTable && !hasRequiredColumns)) && <section className="analysis-card settings-card">
+      <div className="card-title"><h2>Supabase dataset & column mapping</h2><span>Read-only table selection</span></div>
+      <div className="report-controls">
+        <label>Supabase table <select value={selectedTable} onChange={event => { setSelectedTable(event.target.value); setMapping({}); setError(""); setReport(null); }}><option value="">Select a table</option>{tables.map(table => <option key={table.name} value={table.name}>{table.name}</option>)}</select></label>
+        {mappingFields.map(([key, label]) => selectedTable && (
+          <label key={key}>{label} <select value={mapping[key] || ""} onChange={event => setMapping({ ...mapping, [key]: event.target.value })}>
+            <option value="">{autoMapping[key] ? `Auto (${autoMapping[key]})` : "Automatic / unavailable"}</option>
+            {currentTable?.columns.map(column => <option key={column} value={column}>{column}</option>)}
+          </select></label>
+        ))}
+        <button className="secondary-button" disabled={busy || !selectedTable || !hasRequiredColumns} onClick={() => { setDatasetOpen(false); void generate(); }}>Apply dataset</button>
+      </div>
+    </section>}
+
+    {selectedTable && !hasRequiredColumns && !error && <div className="analysis-empty-panel">Select the <strong>Order ID</strong> and <strong>Order date</strong> columns above, then click <strong>Apply dataset</strong>.</div>}
     {error && <div className="analysis-error">{error}</div>}
     {pdfMessage && <div className="pdf-status">{pdfMessage}</div>}
-    {settingsOpen && <section className="analysis-card settings-card">
-      <div className="card-title"><h2>Report settings</h2><span>Preferences only; stored in this browser without writing to Supabase.</span></div>
-      <div className="settings-grid">
-        <label>Comparison days<input className="days-input" type="number" min="1" max="3650" value={settings.comparisonDays} onChange={event => setSettings({ ...settings, comparisonDays: Number(event.target.value) })}/></label>
-        <label>Timezone<input className="settings-input" value={settings.timezone} onChange={event => setSettings({ ...settings, timezone: event.target.value })}/></label>
-        <label>Scheduled time<input className="settings-input" type="time" value={settings.scheduledTime} onChange={event => setSettings({ ...settings, scheduledTime: event.target.value })}/></label>
-        <label className="settings-check"><input type="checkbox" checked={settings.dailyReportEnabled} onChange={event => setSettings({ ...settings, dailyReportEnabled: event.target.checked })}/> Daily report enabled</label>
-        <label className="settings-check"><input type="checkbox" checked={settings.notificationEnabled} onChange={event => setSettings({ ...settings, notificationEnabled: event.target.checked })}/> Notifications enabled</label>
-        <button className="secondary-button settings-save" disabled={settingsBusy} onClick={() => void saveSettings()}>{settingsBusy ? "Saving..." : "Save settings"}</button>
-      </div>
-      {settingsMessage && <p className="settings-message">{settingsMessage}</p>}
-    </section>}
     {!report && !error && hasRequiredColumns && <div className="analysis-empty-panel">Loading read-only Supabase records...</div>}
     {report && <>
       <div className="report-meta">
