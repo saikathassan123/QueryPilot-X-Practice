@@ -29,13 +29,14 @@ function currentClockInTimezone(timeZone: string) {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false
+      hourCycle: "h23"
     }).formatToParts(new Date()).reduce<Record<string, string>>((acc, part) => {
       if (part.type !== "literal") acc[part.type] = part.value;
       return acc;
     }, {});
-    const hour = parts.hour === "24" ? "00" : parts.hour;
-    return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${hour}:${parts.minute}` };
+    const hour = (parts.hour === "24" ? "00" : parts.hour || "00").padStart(2, "0");
+    const minute = (parts.minute || "00").padStart(2, "0");
+    return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${hour}:${minute}` };
   } catch {
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
@@ -82,6 +83,7 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
   const [selectedTable, setSelectedTable] = useState("");
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const lastAutoRunRef = useRef<string>("");
+  const armedScheduleRef = useRef<{ date: string; time: string; armedAt: string } | null>(null);
 
   async function loadHistory() {
     try { setHistory(JSON.parse(localStorage.getItem("querypilot.dailyReports") || "[]")); } catch { setHistory([]); }
@@ -163,10 +165,13 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
 
   function handleTimeChange(nextTime: string) {
     setSelectedTime(nextTime);
+    lastAutoRunRef.current = "";
+    const now = currentClockInTimezone(settings.timezone || "Asia/Dhaka");
+    armedScheduleRef.current = nextTime ? { date: now.date, time: nextTime, armedAt: now.time } : null;
     const updated: AnalysisSettings = { ...settings, scheduledTime: nextTime, dailyReportEnabled: true };
     setSettings(updated);
     try { localStorage.setItem("querypilot.dailySettings", JSON.stringify(updated)); } catch { /* ignore */ }
-    setScheduleStatus(nextTime ? `Scheduled daily at ${nextTime} (${updated.timezone})` : "");
+    setScheduleStatus(nextTime ? `Scheduled at ${nextTime} (${updated.timezone || "Asia/Dhaka"})` : "");
   }
 
   async function downloadPdf(target: AnalysisReport) {
@@ -230,15 +235,31 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
     if (!selectedTime || !selectedTable || !hasRequiredColumns) return;
     const checkSchedule = () => {
       const now = currentClockInTimezone(settings.timezone || "Asia/Dhaka");
-      const slot = `${now.date}|${now.time}`;
-      if (now.time === selectedTime && lastAutoRunRef.current !== slot) {
+      const slot = `${now.date}|${selectedTime}`;
+      const isExactMinute = now.time === selectedTime;
+      const passedWhileTabHidden = Boolean(
+        armedScheduleRef.current
+        && armedScheduleRef.current.date === now.date
+        && armedScheduleRef.current.time === selectedTime
+        && armedScheduleRef.current.armedAt <= selectedTime
+        && now.time > selectedTime
+      );
+      if ((isExactMinute || passedWhileTabHidden) && lastAutoRunRef.current !== slot) {
         lastAutoRunRef.current = slot;
+        armedScheduleRef.current = null;
         setScheduleStatus(`Auto-generated at ${now.time} (${now.date})`);
         void generate();
       }
     };
-    const timer = window.setInterval(checkSchedule, 10000);
-    return () => window.clearInterval(timer);
+    checkSchedule();
+    const timer = window.setInterval(checkSchedule, 1000);
+    window.addEventListener("focus", checkSchedule);
+    document.addEventListener("visibilitychange", checkSchedule);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkSchedule);
+      document.removeEventListener("visibilitychange", checkSchedule);
+    };
   }, [selectedTime, selectedTable, hasRequiredColumns, settings.timezone, dayMode, customStart, customEnd, mapping]);
 
   const comparison = report?.comparisonDailyAverage;
