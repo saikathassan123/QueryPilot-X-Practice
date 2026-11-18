@@ -52,19 +52,6 @@ function MiniBars({ title, items, valueKey }: { title: string; items: AnalysisDi
   )) : <p className="analysis-empty">No completed records in this period.</p>}</section>;
 }
 
-function Trend({ report, metric, title, format }: {
-  report: AnalysisReport;
-  metric: "totalRevenue" | "totalOrders" | "grossProfit";
-  title: string;
-  format: (value: number) => string;
-}) {
-  const available = !report.availableMetrics || report.availableMetrics.includes(metric);
-  const values = report.dailyPerformance;
-  const max = Math.max(...values.map(item => item[metric]), 1);
-  const points = values.map((item, index) => `${values.length === 1 ? 50 : (index / (values.length - 1)) * 100},${100 - (item[metric] / max) * 90}`).join(" ");
-  return <section className="analysis-card trend-card"><div className="card-title"><h2>{title}</h2><span>{report.periodStart} to {report.periodEnd}</span></div>{!available ? <p className="analysis-empty">Column not mapped in selected table.</p> : values.length ? <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label={title}><polyline points={points}/></svg> : <p className="analysis-empty">No completed sales.</p>}<div className="trend-labels"><span>{title}</span><strong>{available ? format(report.current[metric]) : "Unavailable"}</strong></div></section>;
-}
-
 export default function DailyAnalysisDashboard({ onBack }: Props) {
   const [report, setReport] = useState<AnalysisReport | null>(null);
   const [history, setHistory] = useState<AnalysisReport[]>([]);
@@ -344,7 +331,6 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
       ] as Array<[string, string, string, LucideIcon]>).map(([label, key, value, Icon]) => <div className="analysis-stat" key={label}><Icon size={16}/><span>{label}</span><strong>{displayMetric(report, key, value)}</strong></div>)}</div>
       {report.availableMetrics && report.availableMetrics.length < 9 && <div className="analysis-empty">Some KPIs are unavailable because the selected Supabase table does not provide those columns.</div>}
       {change !== null && <div className={"comparison-note " + (change >= 0 ? "positive" : "negative")}>{change >= 0 ? "Growth" : "Decline"} of {Math.abs(change).toFixed(1)}% revenue versus the comparison daily average.</div>}
-      <div className="trend-grid"><Trend report={report} metric="totalRevenue" title="Revenue trend" format={money}/><Trend report={report} metric="totalOrders" title="Orders trend" format={number}/><Trend report={report} metric="grossProfit" title="Gross profit trend" format={money}/></div>
       <div className="analysis-grid"><section className="analysis-card"><h2>Order status distribution</h2>{Object.entries(report.current.statusDistribution).map(([label, value]) => <div className="status-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}</section></div>
       <div className="analysis-grid"><MiniBars title="Product performance" items={report.productPerformance} valueKey="revenue"/><MiniBars title="Category performance" items={report.categoryPerformance} valueKey="revenue"/><MiniBars title="Region performance" items={report.regionPerformance} valueKey="revenue"/><MiniBars title="Gender performance" items={report.genderPerformance} valueKey="orders"/></div>
       <section className="analysis-card history-card"><h2>Report history</h2>{history.length ? history.map((item, index) => <div className="history-entry" key={item.generationKey || item.id || index}><button onClick={() => setReport(item)}><span>{item.reportKind} · {item.reportingDate}{item.dataset?.table ? ` (${item.dataset.table})` : ""}{item.generationKey?.includes("|scheduled|") ? " · Scheduled" : ""}</span><small>{item.periodStart} to {item.periodEnd} · {new Date(item.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {item.status} · PDF: {item.pdfStatus === "generated" ? "ready" : item.pdfStatus === "failed" ? "failed" : "not generated"}</small></button><button className="history-download" disabled={pdfBusyId !== null} onClick={() => void downloadPdf(item)}><Download size={13}/>{pdfBusyId === (item.id || -1) ? "Generating..." : item.pdfStatus === "generated" ? "PDF" : "Generate PDF"}</button></div>) : <p className="analysis-empty">No generated reports yet.</p>}</section>
