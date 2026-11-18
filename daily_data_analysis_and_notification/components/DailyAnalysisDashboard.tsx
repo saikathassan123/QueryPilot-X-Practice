@@ -129,7 +129,7 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
     return { comparisonDays: settings.comparisonDays || 30 };
   }
 
-  async function generate(modeOverride?: DayMode) {
+  async function generate(modeOverride?: DayMode, scheduledAt?: string) {
     const activeMode = modeOverride || dayMode;
     if (activeMode === "manual" && (!/^\d{4}-\d{2}-\d{2}$/.test(customStart) || !/^\d{4}-\d{2}-\d{2}$/.test(customEnd) || customStart > customEnd)) {
       setError("Select a valid start date and end date for Manual mode.");
@@ -144,9 +144,12 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
       const response = await fetch("/api/daily-analysis/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not generate report.");
-      setReport(data.report);
+      const generatedReport: AnalysisReport = scheduledAt
+        ? { ...data.report, generationKey: `${data.report.generationKey || data.report.reportingDate}|scheduled|${scheduledAt}|${Date.now()}` }
+        : data.report;
+      setReport(generatedReport);
       setHistory(prev => {
-        const nextHistory = [data.report, ...prev.filter(item => item.generationKey !== data.report.generationKey)].slice(0, 20);
+        const nextHistory = [generatedReport, ...prev.filter(item => item.generationKey !== generatedReport.generationKey)].slice(0, 20);
         try { localStorage.setItem("querypilot.dailyReports", JSON.stringify(nextHistory)); } catch { /* ignore storage quota */ }
         return nextHistory;
       });
@@ -248,7 +251,7 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
         lastAutoRunRef.current = slot;
         armedScheduleRef.current = null;
         setScheduleStatus(`Auto-generated at ${now.time} (${now.date})`);
-        void generate();
+        void generate(undefined, now.time);
       }
     };
     checkSchedule();
@@ -344,7 +347,7 @@ export default function DailyAnalysisDashboard({ onBack }: Props) {
       <div className="trend-grid"><Trend report={report} metric="totalRevenue" title="Revenue trend" format={money}/><Trend report={report} metric="totalOrders" title="Orders trend" format={number}/><Trend report={report} metric="grossProfit" title="Gross profit trend" format={money}/></div>
       <div className="analysis-grid"><section className="analysis-card"><h2>Order status distribution</h2>{Object.entries(report.current.statusDistribution).map(([label, value]) => <div className="status-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}</section></div>
       <div className="analysis-grid"><MiniBars title="Product performance" items={report.productPerformance} valueKey="revenue"/><MiniBars title="Category performance" items={report.categoryPerformance} valueKey="revenue"/><MiniBars title="Region performance" items={report.regionPerformance} valueKey="revenue"/><MiniBars title="Gender performance" items={report.genderPerformance} valueKey="orders"/></div>
-      <section className="analysis-card history-card"><h2>Report history</h2>{history.length ? history.map((item, index) => <div className="history-entry" key={item.generationKey || item.id || index}><button onClick={() => setReport(item)}><span>{item.reportKind} · {item.reportingDate}{item.dataset?.table ? ` (${item.dataset.table})` : ""}</span><small>{item.periodStart} to {item.periodEnd} · {item.status} · PDF: {item.pdfStatus === "generated" ? "ready" : item.pdfStatus === "failed" ? "failed" : "not generated"}</small></button><button className="history-download" disabled={pdfBusyId !== null} onClick={() => void downloadPdf(item)}><Download size={13}/>{pdfBusyId === (item.id || -1) ? "Generating..." : item.pdfStatus === "generated" ? "PDF" : "Generate PDF"}</button></div>) : <p className="analysis-empty">No generated reports yet.</p>}</section>
+      <section className="analysis-card history-card"><h2>Report history</h2>{history.length ? history.map((item, index) => <div className="history-entry" key={item.generationKey || item.id || index}><button onClick={() => setReport(item)}><span>{item.reportKind} · {item.reportingDate}{item.dataset?.table ? ` (${item.dataset.table})` : ""}{item.generationKey?.includes("|scheduled|") ? " · Scheduled" : ""}</span><small>{item.periodStart} to {item.periodEnd} · {new Date(item.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {item.status} · PDF: {item.pdfStatus === "generated" ? "ready" : item.pdfStatus === "failed" ? "failed" : "not generated"}</small></button><button className="history-download" disabled={pdfBusyId !== null} onClick={() => void downloadPdf(item)}><Download size={13}/>{pdfBusyId === (item.id || -1) ? "Generating..." : item.pdfStatus === "generated" ? "PDF" : "Generate PDF"}</button></div>) : <p className="analysis-empty">No generated reports yet.</p>}</section>
     </>}
   </div>;
 }
